@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Teste voz">
+<meta name="robots" content="noindex">
+<title>Teste de voz</title>
+<style>
+:root{--bg:#F4F5F7;--card:#fff;--ink:#16202E;--ink2:#5A6678;--line:#DCE1E8;--acc:#0F766E;--ok:#15803D;--bad:#B91C1C;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10161F;--card:#18212E;--ink:#E8EDF4;--ink2:#9AA6B8;--line:#2A3748;--acc:#3CC4B2;--ok:#4ADE80;--bad:#F87171;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,system-ui,sans-serif;padding:calc(env(safe-area-inset-top) + 16px) 16px 40px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--ink2);font-size:14px;margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+h2{font-size:16px;margin:0 0 6px}
+p{margin:0 0 10px;font-size:14px;color:var(--ink2)}
+textarea{width:100%;min-height:90px;font:inherit;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button{font:inherit;font-weight:600;border:0;border-radius:999px;padding:14px 20px;background:var(--acc);color:#fff;width:100%}
+button.rec{background:var(--bad)}
+.out{margin-top:10px;min-height:24px;padding:10px;border-radius:10px;background:var(--bg);white-space:pre-wrap}
+.st{font-size:13px;margin-top:8px;color:var(--ink2)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+audio{width:100%;margin-top:10px}
+.info{font-size:12px;color:var(--ink2)}
+</style>
+</head>
+<body>
+<h1>Teste de voz · Meu Assessor</h1>
+<p class="sub" id="modo"></p>
+
+<div class="card">
+<h2>1 · Ditado do teclado</h2>
+<p>Toque no campo, depois no <b>microfone do teclado</b> e fale uma frase. Ex.: "marcar reunião com a Marca Z quinta às três da tarde".</p>
+<textarea id="t1" placeholder="Toque aqui e use o microfone do teclado"></textarea>
+</div>
+
+<div class="card">
+<h2>2 · Botão de voz da página</h2>
+<p>Toque no botão, permita o microfone e fale. Toque de novo para parar.</p>
+<button id="b2">🎤 Falar</button>
+<div class="out" id="o2"></div>
+<div class="st" id="s2"></div>
+</div>
+
+<div class="card">
+<h2>3 · Gravar áudio</h2>
+<p>Grava o áudio (sem transformar em texto) e toca de volta. Serve para a opção da Cloudflare.</p>
+<button id="b3">⏺ Gravar</button>
+<audio id="a3" controls hidden></audio>
+<div class="st" id="s3"></div>
+</div>
+
+<p class="info" id="ua"></p>
+
+<script>
+const $ = id => document.getElementById(id);
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+$('modo').textContent = standalone ? 'Aberto como app da tela inicial ✔' : 'Aberto no navegador. Depois teste de novo pelo ícone da tela inicial.';
+$('ua').textContent = navigator.userAgent;
+
+// Teste 2: reconhecimento de voz do navegador
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let sr = null, ouvindo = false;
+if (!SR) {
+  $('s2').innerHTML = '<span class="bad">Este navegador não oferece reconhecimento de voz.</span>';
+  $('b2').disabled = true;
+} else {
+  $('b2').onclick = () => {
+    if (ouvindo) { sr.stop(); return; }
+    sr = new SR();
+    sr.lang = 'pt-BR'; sr.interimResults = true; sr.continuous = true;
+    let final = '';
+    sr.onstart = () => { ouvindo = true; $('b2').textContent = '⏹ Parar'; $('b2').classList.add('rec'); $('s2').textContent = 'Ouvindo…'; };
+    sr.onresult = e => {
+      let parcial = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript + ' ';
+        else parcial += e.results[i][0].transcript;
+      }
+      $('o2').textContent = final + parcial;
+    };
+    sr.onerror = e => { $('s2').innerHTML = '<span class="bad">Erro: ' + e.error + '</span>'; };
+    sr.onend = () => {
+      ouvindo = false; $('b2').textContent = '🎤 Falar'; $('b2').classList.remove('rec');
+      if (!$('s2').querySelector('.bad')) $('s2').innerHTML = $('o2').textContent.trim() ? '<span class="ok">Funcionou ✔</span>' : 'Parou sem texto.';
+    };
+    try { sr.start(); } catch (err) { $('s2').innerHTML = '<span class="bad">Erro: ' + err.message + '</span>'; }
+  };
+}
+
+// Teste 3: gravação de áudio
+let mr = null, pedacos = [];
+$('b3').onclick = async () => {
+  if (mr && mr.state === 'recording') { mr.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mr = new MediaRecorder(stream); pedacos = [];
+    mr.ondataavailable = e => pedacos.push(e.data);
+    mr.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(pedacos, { type: mr.mimeType });
+      $('a3').src = URL.createObjectURL(blob); $('a3').hidden = false;
+      $('b3').textContent = '⏺ Gravar'; $('b3').classList.remove('rec');
+      $('s3').innerHTML = '<span class="ok">Gravou ✔</span> · ' + (mr.mimeType || 'formato desconhecido') + ' · ' + Math.round(blob.size / 1024) + ' KB';
+    };
+    mr.start();
+    $('b3').textContent = '⏹ Parar'; $('b3').classList.add('rec'); $('s3').textContent = 'Gravando…';
+  } catch (err) {
+    $('s3').innerHTML = '<span class="bad">Erro: ' + err.message + '</span>';
+  }
+};
+</script>
+</body>
+</html>
